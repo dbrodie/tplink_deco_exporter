@@ -10,26 +10,23 @@ import ssl
 from typing import Any
 from urllib.parse import quote_plus
 
-import aiohttp
-import async_timeout
-from aiohttp.hdrs import CONTENT_TYPE
-from aiohttp.hdrs import COOKIE
-from aiohttp.hdrs import SET_COOKIE
 from Crypto.Cipher import PKCS1_v1_5
 from Crypto.PublicKey import RSA
+import aiohttp
+from aiohttp.hdrs import CONTENT_TYPE, COOKIE, SET_COOKIE
+import async_timeout
 from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.primitives.ciphers import algorithms
-from cryptography.hazmat.primitives.ciphers import Cipher
-from cryptography.hazmat.primitives.ciphers import modes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from .const import DEFAULT_TIMEOUT_ERROR_RETRIES
-from .const import DEFAULT_TIMEOUT_SECONDS
-from .exceptions import EmptyDataException
-from .exceptions import ForbiddenException
-from .exceptions import LoginForbiddenException
-from .exceptions import LoginInvalidException
-from .exceptions import TimeoutException
-from .exceptions import UnexpectedApiException
+from .const import DEFAULT_TIMEOUT_ERROR_RETRIES, DEFAULT_TIMEOUT_SECONDS
+from .exceptions import (
+    EmptyDataException,
+    ForbiddenException,
+    LoginForbiddenException,
+    LoginInvalidException,
+    TimeoutException,
+    UnexpectedApiException,
+)
 
 AES_KEY_BYTES = 16
 MIN_AES_KEY = 10 ** (AES_KEY_BYTES - 1)

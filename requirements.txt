@@ -1,7 +1,11 @@
+aiohttp==3.8.4
+async-timeout==4.0.2
+cryptography==40.0.2
+pycryptodome==3.17
+prometheus_client==0.17.1
 black==23.12.0
 colorlog==6.8.2
 flake8==6.1.0
-homeassistant==2023.6.0
 pip>=21.0,<23.2
 pre-commit==3.8.0
 reorder-python-imports==3.14.0
