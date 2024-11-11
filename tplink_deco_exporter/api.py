@@ -18,7 +18,6 @@ import async_timeout
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from .const import DEFAULT_TIMEOUT_ERROR_RETRIES, DEFAULT_TIMEOUT_SECONDS
 from .exceptions import (
     EmptyDataException,
     ForbiddenException,
@@ -27,6 +26,10 @@ from .exceptions import (
     TimeoutException,
     UnexpectedApiException,
 )
+
+# Default timeout settings
+DEFAULT_TIMEOUT_ERROR_RETRIES = 1
+DEFAULT_TIMEOUT_SECONDS = 30
 
 AES_KEY_BYTES = 16
 MIN_AES_KEY = 10 ** (AES_KEY_BYTES - 1)
