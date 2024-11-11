@@ -16,7 +16,12 @@ VERIFY_SSL = True
 COLLECTION_INTERVAL = 60  # seconds
 
 async def metrics_handler(request):
-    return web.Response(body=generate_latest(REGISTRY), content_type=CONTENT_TYPE_LATEST)
+    metrics = generate_latest(REGISTRY)
+    return web.Response(
+        body=metrics,
+        content_type='text/plain',
+        charset='utf-8'
+    )
 
 async def collect_metrics(collector):
     while True:
