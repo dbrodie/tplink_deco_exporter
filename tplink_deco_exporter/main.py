@@ -10,8 +10,12 @@ from .api import TplinkDecoApi
 from .prometheus_metrics import DecoMetricsCollector
 from .config import load_config
 
+logger = logging.getLogger(__name__)
+
 async def metrics_handler(request):
+    logger.debug("Received request for /metrics endpoint")
     metrics = generate_latest(REGISTRY)
+    logger.debug(f"Generated metrics response with size: {len(metrics)} bytes")
     return web.Response(
         body=metrics,
         content_type=CONTENT_TYPE_LATEST,
@@ -20,7 +24,12 @@ async def metrics_handler(request):
 
 async def collect_metrics(collector, interval):
     while True:
-        await collector.collect_metrics()
+        logger.debug(f"Starting metrics collection cycle (interval: {interval}s)")
+        try:
+            await collector.collect_metrics()
+            logger.debug("Successfully collected metrics")
+        except Exception as e:
+            logger.error(f"Error collecting metrics: {e}")
         await asyncio.sleep(interval)
 
 async def main():
@@ -32,7 +41,6 @@ async def main():
         level=config.logging.level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    logger = logging.getLogger(__name__)
     
     logger.info("Starting TP-Link Deco Exporter")
     
