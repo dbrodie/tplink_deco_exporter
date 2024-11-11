@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import aiohttp
 from aiohttp import web
@@ -7,34 +8,53 @@ from prometheus_client.core import REGISTRY
 
 from .api import TplinkDecoApi
 from .prometheus_metrics import DecoMetricsCollector
-
-# Configuration (you might want to load these from a config file or environment variables)
-HOST = "http://192.168.0.1"
-USERNAME = "admin"
-PASSWORD = "your_password"
-VERIFY_SSL = True
-COLLECTION_INTERVAL = 60  # seconds
+from .config import load_config
 
 async def metrics_handler(request):
     metrics = generate_latest(REGISTRY)
     return web.Response(
         body=metrics,
-        content_type='text/plain',
+        content_type=CONTENT_TYPE_LATEST,
         charset='utf-8'
     )
 
-async def collect_metrics(collector):
+async def collect_metrics(collector, interval):
     while True:
         await collector.collect_metrics()
-        await asyncio.sleep(COLLECTION_INTERVAL)
+        await asyncio.sleep(interval)
 
 async def main():
+    # Load configuration
+    config = load_config()
+    
+    # Configure logging
+    logging.basicConfig(
+        level=config.logging.level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Starting TP-Link Deco Exporter")
+    
     async with aiohttp.ClientSession() as session:
-        api = TplinkDecoApi(session, HOST, USERNAME, PASSWORD, VERIFY_SSL)
+        # Initialize API with configuration
+        api = TplinkDecoApi(
+            session,
+            config.api.host,
+            config.api.username,
+            config.api.password,
+            config.api.verify_ssl,
+            timeout_retries=config.api.timeout_error_retries,
+            timeout_seconds=config.api.timeout_seconds
+        )
+        
         collector = DecoMetricsCollector(api)
 
         # Start the metrics collection loop
-        asyncio.create_task(collect_metrics(collector))
+        asyncio.create_task(collect_metrics(
+            collector,
+            config.metrics.collection_interval
+        ))
 
         # Set up the web server
         app = web.Application()
@@ -42,10 +62,13 @@ async def main():
 
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 9100)
+        site = web.TCPSite(runner, config.server.host, config.server.port)
         await site.start()
 
-        print(f"Prometheus exporter started on http://0.0.0.0:9100/metrics")
+        logger.info(
+            f"Prometheus exporter started on http://{config.server.host}:"
+            f"{config.server.port}/metrics"
+        )
 
         # Keep the server running
         while True:

@@ -1,0 +1,23 @@
+# TP-Link Deco Exporter Configuration
+
+# API Configuration
+api:
+  host: "http://192.168.0.1"
+  username: "admin"
+  password: "your_password"
+  verify_ssl: true
+  timeout_error_retries: 3
+  timeout_seconds: 10
+
+# Metrics Collection Configuration
+metrics:
+  collection_interval: 60  # seconds
+
+# Web Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 9100
+
+# Logging Configuration
+logging:
+  level: "INFO"
