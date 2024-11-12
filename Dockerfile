@@ -2,16 +2,13 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install Rust and required build dependencies
+# Install Rust, Cargo and build dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
+    cargo \
+    rustc \
     build-essential \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Add cargo to PATH
-ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install dependencies
 COPY requirements.txt .
