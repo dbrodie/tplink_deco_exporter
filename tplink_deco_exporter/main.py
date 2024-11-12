@@ -16,10 +16,11 @@ async def metrics_handler(request):
     logger.debug("Received request for /metrics endpoint")
     metrics = generate_latest(REGISTRY)
     logger.debug(f"Generated metrics response with size: {len(metrics)} bytes")
+    # Extract just the base content type without charset
+    content_type = CONTENT_TYPE_LATEST.split(';')[0]
     return web.Response(
         body=metrics,
-        content_type=CONTENT_TYPE_LATEST,
-        charset='utf-8'
+        content_type=content_type
     )
 
 async def collect_metrics(collector, interval):
