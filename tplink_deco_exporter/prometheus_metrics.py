@@ -13,8 +13,8 @@ DECO_CLIENT_COUNT = Gauge('deco_client_count', 'Number of clients connected to D
 DECO_CLIENT_INFO = Gauge('deco_client_info', 'Information about clients connected to Deco devices', [
     'mac', 'name', 'ip', 'connection_type', 'interface', 'deco_mac'
 ])
-DECO_CLIENT_UPLOAD = Gauge('deco_client_upload', 'Upload speed of clients in kilobytes per second', ['mac'])
-DECO_CLIENT_DOWNLOAD = Gauge('deco_client_download', 'Download speed of clients in kilobytes per second', ['mac'])
+DECO_CLIENT_UPLOAD = Gauge('deco_client_upload', 'Upload speed of clients in kilobytes per second', ['mac', 'ip', 'name'])
+DECO_CLIENT_DOWNLOAD = Gauge('deco_client_download', 'Download speed of clients in kilobytes per second', ['mac', 'ip', 'name'])
 DECO_API_REQUESTS = Counter('deco_api_requests', 'Number of API requests made to Deco devices', ['endpoint'])
 DECO_API_ERRORS = Counter('deco_api_errors', 'Number of API errors encountered', ['type'])
 
@@ -58,9 +58,17 @@ class DecoMetricsCollector:
                             deco_mac=client.deco_mac or ''
                         ).set(1)
                         
-                        # Set upload and download speeds
-                        DECO_CLIENT_UPLOAD.labels(mac=client.mac).set(client.up_kilobytes_per_s or 0)
-                        DECO_CLIENT_DOWNLOAD.labels(mac=client.mac).set(client.down_kilobytes_per_s or 0)
+                        # Set upload and download speeds with additional labels
+                        DECO_CLIENT_UPLOAD.labels(
+                            mac=client.mac,
+                            ip=client.ip_address or '',
+                            name=client.name or ''
+                        ).set(client.up_kilobytes_per_s or 0)
+                        DECO_CLIENT_DOWNLOAD.labels(
+                            mac=client.mac,
+                            ip=client.ip_address or '',
+                            name=client.name or ''
+                        ).set(client.down_kilobytes_per_s or 0)
 
                 except Exception as e:
                     DECO_API_ERRORS.labels(type='list_clients').inc()
