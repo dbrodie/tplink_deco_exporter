@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Optional
 import yaml
@@ -36,10 +37,25 @@ class Config(BaseModel):
             config_dict = yaml.safe_load(f)
         return cls.model_validate(config_dict)
 
-def load_config(config_path: str | Path = "config.yml") -> Config:
-    """Load and validate configuration from file."""
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
+    @classmethod
+    def from_env(cls) -> "Config":
+        """Create configuration from environment variables."""
+        return cls.model_validate({})
+
+def load_config(config_path: str | Path | None = None) -> Config:
+    """Load and validate configuration from file or environment variables."""
+    # Check environment variable for config path
+    env_config_path = os.getenv('CONFIG_PATH')
     
-    return Config.from_yaml(path)
+    # Determine the config path priority:
+    # 1. Explicitly passed config_path
+    # 2. CONFIG_PATH environment variable
+    # 3. Default "config.yml" in current directory
+    final_path = config_path or env_config_path or "config.yml"
+    
+    path = Path(final_path)
+    if path.exists():
+        return Config.from_yaml(path)
+    
+    # If no config file exists, try to load from environment variables
+    return Config.from_env()
