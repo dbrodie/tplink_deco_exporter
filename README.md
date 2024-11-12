@@ -7,8 +7,11 @@ This project is a Prometheus exporter for TP-Link Deco routers. It provides metr
 - Exports metrics for Deco routers and connected clients
 - Local polling of the Deco admin web UI
 - Prometheus-compatible metrics output
+- Docker support with flexible configuration options
 
 ## Installation
+
+### Standard Installation
 
 1. Clone this repository:
    ```
@@ -21,69 +24,16 @@ This project is a Prometheus exporter for TP-Link Deco routers. It provides metr
    pip install -r requirements.txt
    ```
 
-## Docker
+### Docker Installation
 
-You can run this exporter using Docker in two ways:
-
-### Using Docker Compose
-
-1. With a config file:
-   ```yaml
-   version: '3'
-   services:
-     tplink-deco-exporter:
-       build: .
-       ports:
-         - "9100:9100"
-       volumes:
-         - ./config.yml:/config/config.yml:ro
-       restart: unless-stopped
-   ```
-
-2. With environment variables:
-   ```yaml
-   version: '3'
-   services:
-     tplink-deco-exporter:
-       build: .
-       ports:
-         - "9100:9100"
-       environment:
-         - DECO_API_HOST=http://192.168.0.1
-         - DECO_API_USERNAME=admin
-         - DECO_API_PASSWORD=your_password
-         - DECO_API_VERIFY_SSL=true
-         - DECO_API_TIMEOUT_RETRIES=3
-         - DECO_API_TIMEOUT_SECONDS=10
-         - DECO_METRICS_INTERVAL=60
-         - DECO_SERVER_HOST=0.0.0.0
-         - DECO_SERVER_PORT=9100
-         - DECO_LOG_LEVEL=INFO
-       restart: unless-stopped
-   ```
-
-Run with:
-```bash
-docker-compose up -d
-```
-
-### Using Docker Directly
-
-1. Build the image:
+1. Clone this repository and build the Docker image:
    ```bash
+   git clone https://github.com/yourusername/tplink-deco-exporter.git
+   cd tplink-deco-exporter
    docker build -t tplink-deco-exporter .
    ```
 
-2. Run with a config file:
-   ```bash
-   docker run -d \
-     -p 9100:9100 \
-     -v $(pwd)/config.yml:/config/config.yml:ro \
-     --name tplink-deco-exporter \
-     tplink-deco-exporter
-   ```
-
-3. Or run with environment variables:
+2. Run using environment variables:
    ```bash
    docker run -d \
      -p 9100:9100 \
@@ -91,7 +41,21 @@ docker-compose up -d
      -e DECO_API_USERNAME=admin \
      -e DECO_API_PASSWORD=your_password \
      -e DECO_API_VERIFY_SSL=true \
+     -e DECO_API_TIMEOUT_RETRIES=3 \
+     -e DECO_API_TIMEOUT_SECONDS=10 \
      -e DECO_METRICS_INTERVAL=60 \
+     -e DECO_SERVER_HOST=0.0.0.0 \
+     -e DECO_SERVER_PORT=9100 \
+     -e DECO_LOG_LEVEL=INFO \
+     --name tplink-deco-exporter \
+     tplink-deco-exporter
+   ```
+
+   Or using a config file:
+   ```bash
+   docker run -d \
+     -p 9100:9100 \
+     -v $(pwd)/config.yml:/config/config.yml:ro \
      --name tplink-deco-exporter \
      tplink-deco-exporter
    ```
@@ -139,10 +103,34 @@ All configuration options can be set using environment variables:
 
 ## Usage
 
+### Standard Usage
+
 Run the exporter:
 
 ```
 python -m tplink_deco_exporter.main
+```
+
+### Docker Usage
+
+Run with environment variables:
+```bash
+docker run -d \
+  -p 9100:9100 \
+  -e DECO_API_HOST=http://192.168.0.1 \
+  -e DECO_API_USERNAME=admin \
+  -e DECO_API_PASSWORD=your_password \
+  --name tplink-deco-exporter \
+  tplink-deco-exporter
+```
+
+Or with a config file:
+```bash
+docker run -d \
+  -p 9100:9100 \
+  -v $(pwd)/config.yml:/config/config.yml:ro \
+  --name tplink-deco-exporter \
+  tplink-deco-exporter
 ```
 
 By default, the exporter will start a web server on port 9100. You can access the metrics at `http://localhost:9100/metrics`.
