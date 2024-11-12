@@ -53,6 +53,10 @@ def decode_name_with_fallback(name: str):
         return f"<Error Decoding {name}>"
 
 
+def snake_case_to_title_space(str):
+    return " ".join([w.title() for w in str.split("_")])
+
+
 def rsa_encrypt(n: int, e: int, plaintext: bytes) -> bytes:
     """
     RSA encrypts plaintext. TP-Link breaks the plaintext down into blocks and concatenates the output.
@@ -118,6 +122,80 @@ def check_data_error_code(context, data):
         raise UnexpectedApiException(f"{context} error_code={error_code}")
 
 
+class TpLinkDeco:
+    """Class to manage TP-Link Deco device."""
+
+    def __init__(self, mac: str) -> None:
+        self.mac = mac
+
+        self.hw_version = None
+        self.sw_version = None
+        self.device_model = None
+
+        self.name = None
+        self.ip_address = None
+        self.online = None
+        self.internet_online = None
+        self.master = None
+        self.connection_type = None
+        self.interface = None
+        self.bssid_band2_4 = None
+        self.bssid_band5 = None
+        self.signal_band2_4 = None
+        self.signal_band5 = None
+
+    def update(
+        self,
+        data: dict[str:Any],
+    ) -> None:
+        self.hw_version = data.get("hardware_ver")
+        self.sw_version = data.get("software_ver")
+        self.device_model = data.get("device_model")
+
+        self.name = data.get("custom_nickname")  # Only set if custom value
+        if self.name is None:
+            self.name = snake_case_to_title_space(data.get("nickname"))
+        self.ip_address = data.get("device_ip")
+        self.online = data.get("group_status") == "connected"
+        self.internet_online = data.get("inet_status") == "online"
+        self.master = data.get("role") == "master"
+        self.connection_type = data.get("connection_type")
+        self.bssid_band2_4 = data.get("bssid_2g")
+        self.bssid_band5 = data.get("bssid_5g")
+        signal_level = data.get("signal_level", {})
+        self.signal_band2_4 = signal_level.get("band2_4")
+        self.signal_band5 = signal_level.get("band5")
+
+
+class TpLinkDecoClient:
+    """Class to manage TP-Link Deco Client."""
+
+    def __init__(self, mac: str) -> None:
+        self.mac = mac
+        self.name = None
+        self.ip_address = None
+        self.online = False
+        self.connection_type = None
+        self.interface = None
+        self.down_kilobytes_per_s = 0
+        self.up_kilobytes_per_s = 0
+        self.deco_mac = None
+
+    def update(
+        self,
+        data: dict[str:Any],
+        deco_mac: str,
+    ) -> None:
+        self.deco_mac = deco_mac
+        self.name = data.get("name")
+        self.ip_address = data.get("ip")
+        self.online = data.get("online")
+        self.connection_type = data.get("connection_type")
+        self.interface = data.get("interface")
+        self.down_kilobytes_per_s = data.get("down_speed", 0)
+        self.up_kilobytes_per_s = data.get("up_speed", 0)
+
+
 class TplinkDecoApi:
     def __init__(
         self,
@@ -162,10 +240,10 @@ class TplinkDecoApi:
             self._ssl_context = context
 
     # Return list of deco devices
-    async def async_list_devices(self) -> dict:
+    async def async_list_devices(self) -> list[TpLinkDeco]:
         return await self._async_call_with_retry(self._async_list_devices)
 
-    async def _async_list_devices(self) -> dict:
+    async def _async_list_devices(self) -> list[TpLinkDeco]:
         await self.async_login_if_needed()
 
         context = "List Devices"
@@ -184,14 +262,18 @@ class TplinkDecoApi:
             _LOGGER.debug("List devices device_count=%d", len(device_list))
             _LOGGER.debug("List devices device_list=%s", device_list)
 
-            for device in device_list:
-                custom_nickname = device.get("custom_nickname")
+            decos = []
+            for device_data in device_list:
+                custom_nickname = device_data.get("custom_nickname")
                 if custom_nickname is not None:
-                    device["custom_nickname"] = decode_name_with_fallback(
+                    device_data["custom_nickname"] = decode_name_with_fallback(
                         custom_nickname
                     )
+                deco = TpLinkDeco(device_data["mac"])
+                deco.update(device_data)
+                decos.append(deco)
 
-            return device_list
+            return decos
         except Exception as err:
             _LOGGER.error("%s parse response error=%s, data=%s", context, err, data)
             raise err
@@ -217,10 +299,10 @@ class TplinkDecoApi:
         _LOGGER.debug("Rebooted decos %s", deco_macs)
 
     # Return list of clients. Default lists clients for all decos.
-    async def async_list_clients(self, deco_mac="default") -> dict:
+    async def async_list_clients(self, deco_mac="default") -> list[TpLinkDecoClient]:
         return await self._async_call_with_retry(self._async_list_clients, deco_mac)
 
-    async def _async_list_clients(self, deco_mac) -> dict:
+    async def _async_list_clients(self, deco_mac) -> list[TpLinkDecoClient]:
         await self.async_login_if_needed()
 
         context = f"List Clients {deco_mac}"
@@ -241,10 +323,14 @@ class TplinkDecoApi:
             _LOGGER.debug("%s client_count=%d", context, len(client_list))
             _LOGGER.debug("%s client_list=%s", context, client_list)
 
-            for client in client_list:
-                client["name"] = decode_name_with_fallback(client["name"])
+            clients = []
+            for client_data in client_list:
+                client_data["name"] = decode_name_with_fallback(client_data["name"])
+                client = TpLinkDecoClient(client_data["mac"])
+                client.update(client_data, deco_mac)
+                clients.append(client)
 
-            return client_list
+            return clients
         except Exception as err:
             _LOGGER.error("%s parse response error=%s, data=%s", context, err, data)
             raise err
