@@ -10,7 +10,7 @@ class ApiConfig(BaseModel):
     password: str = Field(..., env='DECO_API_PASSWORD')
     verify_ssl: bool = Field(default=True, env='DECO_API_VERIFY_SSL')
     timeout_error_retries: int = Field(default=3, env='DECO_API_TIMEOUT_RETRIES')
-    timeout_seconds: int = Field(default=10, env='DECO_API_TIMEOUT_SECONDS')
+    timeout_seconds: int = Field(default=30, env='DECO_API_TIMEOUT_SECONDS')
 
 class MetricsConfig(BaseModel):
     collection_interval: int = Field(default=60, env='DECO_METRICS_INTERVAL')

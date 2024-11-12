@@ -52,7 +52,7 @@ async def main():
             config.api.username,
             config.api.password,
             config.api.verify_ssl,
-            timeout_retries=config.api.timeout_error_retries,
+            timeout_error_retries=config.api.timeout_error_retries,
             timeout_seconds=config.api.timeout_seconds
         )
         
