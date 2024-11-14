@@ -4,46 +4,66 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel, Field, ConfigDict
 
+def to_env_var(field_name: str) -> str:
+    """Convert field name to environment variable name."""
+    return f"DECO_{field_name.upper()}"
+
 class ApiConfig(BaseModel):
-    host: str = Field(..., env='DECO_API_HOST')
-    username: str = Field(..., env='DECO_API_USERNAME')
-    password: str = Field(..., env='DECO_API_PASSWORD')
-    verify_ssl: bool = Field(default=True, env='DECO_API_VERIFY_SSL')
-    timeout_error_retries: int = Field(default=3, env='DECO_API_TIMEOUT_RETRIES')
-    timeout_seconds: int = Field(default=30, env='DECO_API_TIMEOUT_SECONDS')
+    model_config = ConfigDict(
+        from_attributes=True,
+        env_prefix='DECO_API_',
+        populate_by_name=True
+    )
+    
+    host: str
+    username: str = "admin"
+    password: str
+    verify_ssl: bool = True
+    timeout_error_retries: int = 3
+    timeout_seconds: int = 30
 
 class MetricsConfig(BaseModel):
-    collection_interval: int = Field(default=60, env='DECO_METRICS_INTERVAL')
+    model_config = ConfigDict(
+        from_attributes=True,
+        env_prefix='DECO_METRICS_',
+        populate_by_name=True
+    )
+    
+    collection_interval: int = 60
 
 class ServerConfig(BaseModel):
-    host: str = Field(default="0.0.0.0", env='DECO_SERVER_HOST')
-    port: int = Field(default=9100, env='DECO_SERVER_PORT')
+    model_config = ConfigDict(
+        from_attributes=True,
+        env_prefix='DECO_SERVER_',
+        populate_by_name=True
+    )
+    
+    host: str = "0.0.0.0"
+    port: int = 9100
 
 class LoggingConfig(BaseModel):
-    level: str = Field(default="INFO", env='DECO_LOG_LEVEL')
+    model_config = ConfigDict(
+        from_attributes=True,
+        env_prefix='DECO_LOG_',
+        populate_by_name=True
+    )
+    
+    level: str = "INFO"
 
 class Config(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        from_attributes=True,
+        extra='forbid',
+        populate_by_name=True
+    )
     
     api: ApiConfig
     metrics: MetricsConfig = MetricsConfig()
     server: ServerConfig = ServerConfig()
     logging: LoggingConfig = LoggingConfig()
 
-    @classmethod
-    def from_yaml(cls, path: Path) -> "Config":
-        """Load configuration from YAML file."""
-        with open(path, 'r') as f:
-            config_dict = yaml.safe_load(f)
-        return cls.model_validate(config_dict)
-
-    @classmethod
-    def from_env(cls) -> "Config":
-        """Create configuration from environment variables."""
-        return cls.model_validate({})
-
 def load_config(config_path: str | Path | None = None) -> Config:
-    """Load and validate configuration from file or environment variables."""
+    """Load and validate configuration from file and/or environment variables."""
     # Check environment variable for config path
     env_config_path = os.getenv('CONFIG_PATH')
     
@@ -53,9 +73,34 @@ def load_config(config_path: str | Path | None = None) -> Config:
     # 3. Default "config.yml" in current directory
     final_path = config_path or env_config_path or "config.yml"
     
+    # Start with empty configuration structure
+    config_dict = {
+        'api': {},
+        'metrics': {},
+        'server': {},
+        'logging': {}
+    }
+    
+    # Load from file if it exists
     path = Path(final_path)
     if path.exists():
-        return Config.from_yaml(path)
+        with open(path, 'r') as f:
+            file_config = yaml.safe_load(f)
+            # Update our config dict with file values
+            if file_config:
+                for section in config_dict:
+                    if section in file_config:
+                        config_dict[section].update(file_config[section] or {})
     
-    # If no config file exists, try to load from environment variables
-    return Config.from_env()
+    # Check for environment variables and override config values
+    for env_var, value in os.environ.items():
+        if env_var.startswith('DECO_'):
+            parts = env_var.lower().split('_')
+            if len(parts) >= 3:  # e.g., ['deco', 'api', 'password']
+                section = parts[1]
+                field = '_'.join(parts[2:])
+                if section in config_dict:
+                    config_dict[section][field] = value
+    
+    # Now validate the model
+    return Config.model_validate(config_dict)

@@ -1,23 +1,61 @@
 # TP-Link Deco Exporter Configuration
+#
+# Configuration can be loaded from this file and/or environment variables.
+# Environment variables take precedence over file configuration.
+#
+# To specify a different config file location, set CONFIG_PATH environment variable.
+# Default location is ./config.yml in the current directory
+#
+# Environment Variables:
+# Any configuration field can be set/overridden using environment variables with the format:
+# DECO_<SECTION>_<FIELD> (e.g., DECO_API_PASSWORD, DECO_SERVER_PORT)
 
 # API Configuration
 api:
-  host: "http://192.168.0.1"
+  # Required: API host URL (can be set via DECO_API_HOST)
+  host: "http://192.168.68.1"
+
+  # Optional: Username for authentication (can be set via DECO_API_USERNAME)
+  # Default: "admin"
   username: "admin"
+
+  # Required: Password for authentication (can be set via DECO_API_PASSWORD)
+  # For security, it's recommended to set this via environment variable:
+  # export DECO_API_PASSWORD=your_password
+  # If set here, this value can still be overridden by DECO_API_PASSWORD
   password: "your_password"
+
+  # Optional: SSL verification (can be set via DECO_API_VERIFY_SSL)
+  # Default: true
   verify_ssl: true
+
+  # Optional: Number of retries for timeout errors (can be set via DECO_API_TIMEOUT_RETRIES)
+  # Default: 3
   timeout_error_retries: 3
+
+  # Optional: Timeout in seconds (can be set via DECO_API_TIMEOUT_SECONDS)
+  # Default: 30
   timeout_seconds: 10
 
 # Metrics Collection Configuration
 metrics:
-  collection_interval: 60  # seconds
+  # Optional: Collection interval in seconds (can be set via DECO_METRICS_INTERVAL)
+  # Default: 60
+  collection_interval: 60
 
 # Web Server Configuration
 server:
+  # Optional: Server host (can be set via DECO_SERVER_HOST)
+  # Default: "0.0.0.0"
   host: "0.0.0.0"
+
+  # Optional: Server port (can be set via DECO_SERVER_PORT)
+  # Default: 9100
   port: 9100
 
 # Logging Configuration
 logging:
+  # Optional: Logging level (can be set via DECO_LOG_LEVEL)
+  # Default: "INFO"
+  # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: "INFO"
