@@ -1,177 +1,64 @@
-# TP-Link Deco Prometheus Exporter
+# TP-Link Deco metrics and raw log forwarder
 
-This project is a Prometheus exporter for TP-Link Deco routers. It provides metrics about the Deco system and connected devices, allowing you to monitor your home network using Prometheus and Grafana.
+A read-only Prometheus exporter and Loki forwarder for TP-Link Deco firmware. It exports low-level API observations and forwards the router's `feedback_log` lines unchanged. It deliberately contains no health classification, alert rules, event categorization, or diagnosis.
 
-## Features
+## Docker Compose
 
-- Exports metrics for Deco routers and connected clients
-- Local polling of the Deco admin web UI
-- Prometheus-compatible metrics output
-- Docker support with flexible configuration options
+Create the Docker secret and start the one-service stack:
 
-## Installation
+```shell
+mkdir -p .secrets
+printf '%s' 'your-deco-password' > .secrets/deco_password
+chmod 600 .secrets/deco_password
+docker compose up -d --build
+```
 
-### Standard Installation
+Edit `config.yml` for the Deco host, instance name, and Loki URL. Set `logs.enabled: true` when Loki is available. Metrics are served at `http://localhost:9100/metrics`; liveness and readiness are `/healthz` and `/readyz`.
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/yourusername/tplink-deco-exporter.git
-   cd tplink-deco-exporter
-   ```
+The named `deco-state` volume persists `/data/log-watermark.json`. To use a host directory instead, replace `deco-state:/data` with `./data:/data`. `/data` is the only writable application directory. ICMP probing uses the container's `NET_RAW` capability and can be disabled.
 
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-### Docker Installation
-
-1. Clone this repository and build the Docker image:
-   ```bash
-   git clone https://github.com/yourusername/tplink-deco-exporter.git
-   cd tplink-deco-exporter
-   docker build -t tplink-deco-exporter .
-   ```
-
-2. Run using environment variables:
-   ```bash
-   docker run -d \
-     -p 9100:9100 \
-     -e DECO_API_HOST=http://192.168.0.1 \
-     -e DECO_API_USERNAME=admin \
-     -e DECO_API_PASSWORD=your_password \
-     -e DECO_API_VERIFY_SSL=true \
-     -e DECO_API_TIMEOUT_RETRIES=3 \
-     -e DECO_API_TIMEOUT_SECONDS=10 \
-     -e DECO_METRICS_INTERVAL=60 \
-     -e DECO_SERVER_HOST=0.0.0.0 \
-     -e DECO_SERVER_PORT=9100 \
-     -e DECO_LOG_LEVEL=INFO \
-     --name tplink-deco-exporter \
-     tplink-deco-exporter
-   ```
-
-   Or using a config file:
-   ```bash
-   docker run -d \
-     -p 9100:9100 \
-     -v $(pwd)/config.yml:/config/config.yml:ro \
-     --name tplink-deco-exporter \
-     tplink-deco-exporter
-   ```
+For Loki authentication, add a Compose secret and configure one of `loki.password_file` (with `loki.username`) or `loki.bearer_token_file`. `loki.tenant_id` supplies `X-Scope-OrgID`. Passwords and tokens may also be supplied through `DECO_*` variables, but secret files are preferred.
 
 ## Configuration
 
-The exporter can be configured using either a YAML file or environment variables.
+Every YAML field can be overridden as `DECO_<SECTION>_<FIELD>`, for example `DECO_API_HOST`, `DECO_LOGS_ENABLED`, `DECO_LOKI_URL`, and `DECO_SERVER_PORT`. `DECO_INSTANCE` sets the top-level instance. `CONFIG_PATH` selects the YAML file.
 
-### Configuration File (config.yml)
+The supported sections and fields are:
 
-```yaml
-api:
-  host: "http://192.168.0.1"
-  username: "admin"
-  password: "your_password"
-  verify_ssl: true
-  timeout_error_retries: 3
-  timeout_seconds: 10
+- `api`: `host`, `username`, `password`/`password_file`, `verify_ssl`, `timeout_seconds`, `timeout_retries`
+- `metrics`: `collection_interval`
+- `probes`: `enabled`, `interval`, `attempts`, `timeout`
+- `logs`: `enabled`, `poll_interval`, `level`, `timezone_fallback`, `page_size`, `state_path`
+- `loki`: `url`, `tenant_id`, `username`, `password`/`password_file`, `bearer_token`/`bearer_token_file`, `verify_ssl`, `timeout_seconds`, `batch_size`, `retries`
+- `server`: `host`, `port`
+- `logging`: `level`
 
-metrics:
-  collection_interval: 60  # seconds
+Firmware log levels are `ALL`, `ALERT`, `CRITICAL`, `ERROR`, `WARNING`, `NOTICE`, `INFO`, and `DEBUG`.
 
-server:
-  host: "0.0.0.0"
-  port: 9100
+## Exported data
 
-logging:
-  level: "INFO"
+The exporter maps the tested device inventory, per-node client inventory and rates, gateway CPU/memory ratios, system mode, IPv4/IPv6 internet state, WAN/LAN addressing, router time settings, and wireless operation/DFS/802.11r/beamforming/ERP flags. Device signal levels and all status strings remain raw firmware values.
+
+Collection mechanics are observable through `deco_api_*`, `deco_collection_*`, device/client counts, probe metrics, log snapshot/record metrics, Loki delivery counters, and watermark-reset counters. `deco_api_endpoint_supported{endpoint}` reports both supported and probed optional firmware forms; an unsupported optional form is not treated as mesh failure.
+
+The WAN username returned inside `wan_ipv4` is neither mapped nor logged. Unknown response fields are kept only for the current poll, and debug diagnostics report field names/types rather than values.
+
+## Raw log replay
+
+Each poll builds the firmware's temporary `feedback_log` snapshot, follows its page-count semantics, and searches backward for the saved eight-line SHA-256 anchor. New lines are reversed into chronological order and sent exactly as returned using only these Loki labels:
+
+```text
+job="tplink_deco", instance="<configured>", source="deco_router"
 ```
 
-### Environment Variables
+Only the leading router timestamp is parsed for Loki ordering. State is atomically replaced after every accepted Loki batch. If Loki is unavailable the prior watermark remains; there is intentionally no durable raw-log spool.
 
-All configuration options can be set using environment variables:
+## Development
 
-- `DECO_API_HOST`: The IP address of your main Deco router
-- `DECO_API_USERNAME`: Your Deco admin username
-- `DECO_API_PASSWORD`: Your Deco admin password
-- `DECO_API_VERIFY_SSL`: Set to "true" or "false"
-- `DECO_API_TIMEOUT_RETRIES`: Number of retries on timeout
-- `DECO_API_TIMEOUT_SECONDS`: Timeout in seconds
-- `DECO_METRICS_INTERVAL`: How often to collect metrics (in seconds)
-- `DECO_SERVER_HOST`: Server host (default: "0.0.0.0")
-- `DECO_SERVER_PORT`: Server port (default: 9100)
-- `DECO_LOG_LEVEL`: Logging level (default: "INFO")
-
-## Usage
-
-### Standard Usage
-
-Run the exporter:
-
-```
-python -m tplink_deco_exporter.main
+```shell
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pytest
 ```
 
-### Docker Usage
-
-Run with environment variables:
-```bash
-docker run -d \
-  -p 9100:9100 \
-  -e DECO_API_HOST=http://192.168.0.1 \
-  -e DECO_API_USERNAME=admin \
-  -e DECO_API_PASSWORD=your_password \
-  --name tplink-deco-exporter \
-  tplink-deco-exporter
-```
-
-Or with a config file:
-```bash
-docker run -d \
-  -p 9100:9100 \
-  -v $(pwd)/config.yml:/config/config.yml:ro \
-  --name tplink-deco-exporter \
-  tplink-deco-exporter
-```
-
-By default, the exporter will start a web server on port 9100. You can access the metrics at `http://localhost:9100/metrics`.
-
-## Available Metrics
-
-- `deco_device_info`: Information about Deco devices
-- `deco_device_online`: Online status of Deco devices
-- `deco_client_count`: Number of clients connected to Deco devices
-- `deco_client_info`: Information about clients connected to Deco devices
-- `deco_api_requests`: Number of API requests made to Deco devices
-- `deco_api_errors`: Number of API errors encountered
-
-## Prometheus Configuration
-
-Add the following job to your Prometheus configuration:
-
-```yaml
-scrape_configs:
-  - job_name: 'tplink_deco'
-    static_configs:
-      - targets: ['localhost:9100']
-```
-
-## Grafana Dashboard
-
-You can create a Grafana dashboard to visualize the metrics collected by this exporter. Some suggested panels include:
-
-- Deco devices status
-- Number of connected clients per Deco
-- Client connection types (2.4GHz, 5GHz, Ethernet)
-- API request and error rates
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-This project was originally based on the Home Assistant integration for TP-Link Deco routers.
+The exporter only calls read operations plus the temporary `feedback_log` `build` operation. It contains no router control or persistent configuration calls.

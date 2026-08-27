@@ -2,33 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install build dependencies and curl for rustup
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    pkg-config \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Rust using rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl iputils-ping \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin deco \
+    && mkdir /data \
+    && chown deco:deco /data
+COPY requirements-runtime.txt .
+RUN pip install --no-cache-dir -r requirements-runtime.txt
 COPY tplink_deco_exporter/ ./tplink_deco_exporter/
-
-# Create config directory
-RUN mkdir /config
-
-# Set default config path
-ENV CONFIG_PATH=/config/config.yml
-
-# Expose prometheus metrics port
+COPY config.yml /config/config.yml
+ENV CONFIG_PATH=/config/config.yml PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+USER deco
 EXPOSE 9100
-
-# Run the exporter
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 CMD ["curl", "--fail", "--silent", "http://127.0.0.1:9100/healthz"]
 CMD ["python", "-m", "tplink_deco_exporter.main"]

@@ -8,6 +8,11 @@ __pycache__
 # misc
 .coverage
 coverage.xml
+.DS_Store
+._*
+.secrets/
+data/
+config_usage.yml
 
 # Home Assistant configuration
 config/*

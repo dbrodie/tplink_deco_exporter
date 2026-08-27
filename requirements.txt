@@ -1,7 +1,4 @@
-async-timeout==4.0.2
-cryptography==40.0.2
-pycryptodome==3.17
-prometheus_client==0.17.1
+-r requirements-runtime.txt
 black==23.12.0
 colorlog==6.8.2
 flake8==6.1.0
@@ -9,5 +6,9 @@ pip>=21.0,<23.2
 pre-commit==3.8.0
 reorder-python-imports==3.14.0
 ruff==0.7.0
-pydantic==2.5.2
-pyyaml==6.0.1
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+pytest-aiohttp==1.0.5
+aiohttp==3.9.1

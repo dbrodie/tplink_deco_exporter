@@ -1,0 +1,11 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.coverage
+._*
+.secrets
+data
+tests
+__pycache__
+*.pyc

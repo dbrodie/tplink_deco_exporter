@@ -1,61 +1,40 @@
-# TP-Link Deco Exporter Configuration
-#
-# Configuration can be loaded from this file and/or environment variables.
-# Environment variables take precedence over file configuration.
-#
-# To specify a different config file location, set CONFIG_PATH environment variable.
-# Default location is ./config.yml in the current directory
-#
-# Environment Variables:
-# Any configuration field can be set/overridden using environment variables with the format:
-# DECO_<SECTION>_<FIELD> (e.g., DECO_API_PASSWORD, DECO_SERVER_PORT)
+instance: home-deco
 
-# API Configuration
 api:
-  # Required: API host URL (can be set via DECO_API_HOST)
-  host: "http://192.168.68.1"
-
-  # Optional: Username for authentication (can be set via DECO_API_USERNAME)
-  # Default: "admin"
-  username: "admin"
-
-  # Required: Password for authentication (can be set via DECO_API_PASSWORD)
-  # For security, it's recommended to set this via environment variable:
-  # export DECO_API_PASSWORD=your_password
-  # If set here, this value can still be overridden by DECO_API_PASSWORD
-  password: "your_password"
-
-  # Optional: SSL verification (can be set via DECO_API_VERIFY_SSL)
-  # Default: true
+  host: http://192.168.68.1
+  username: admin
+  password_file: /run/secrets/deco_password
   verify_ssl: true
-
-  # Optional: Number of retries for timeout errors (can be set via DECO_API_TIMEOUT_RETRIES)
-  # Default: 3
-  timeout_error_retries: 3
-
-  # Optional: Timeout in seconds (can be set via DECO_API_TIMEOUT_SECONDS)
-  # Default: 30
   timeout_seconds: 10
+  timeout_retries: 3
 
-# Metrics Collection Configuration
 metrics:
-  # Optional: Collection interval in seconds (can be set via DECO_METRICS_INTERVAL)
-  # Default: 60
   collection_interval: 60
 
-# Web Server Configuration
-server:
-  # Optional: Server host (can be set via DECO_SERVER_HOST)
-  # Default: "0.0.0.0"
-  host: "0.0.0.0"
+probes:
+  enabled: true
+  interval: 30
+  attempts: 1
+  timeout: 2
 
-  # Optional: Server port (can be set via DECO_SERVER_PORT)
-  # Default: 9100
+logs:
+  enabled: false
+  poll_interval: 60
+  level: INFO
+  timezone_fallback: UTC
+  page_size: 100
+  state_path: /data/log-watermark.json
+
+loki:
+  url: http://loki:3100/loki/api/v1/push
+  verify_ssl: true
+  timeout_seconds: 10
+  batch_size: 500
+  retries: 3
+
+server:
+  host: 0.0.0.0
   port: 9100
 
-# Logging Configuration
 logging:
-  # Optional: Logging level (can be set via DECO_LOG_LEVEL)
-  # Default: "INFO"
-  # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: "INFO"
+  level: INFO
