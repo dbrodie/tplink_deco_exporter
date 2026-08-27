@@ -4,14 +4,7 @@ A read-only Prometheus exporter and Loki forwarder for TP-Link Deco firmware. It
 
 ## Docker Compose
 
-The published image is `ghcr.io/dbrodie/tplink_deco_exporter`. Because the GitHub repository is private, authenticate Docker with a classic personal access token containing `read:packages` before the first pull:
-
-```shell
-export CR_PAT="your-github-token"
-printf '%s' "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
-```
-
-Then create the Docker secret and start the one-service stack:
+The public image is `ghcr.io/dbrodie/tplink_deco_exporter:latest` and can be pulled anonymously. Create the Docker secret and start the one-service stack:
 
 ```shell
 mkdir -p .secrets
@@ -73,6 +66,6 @@ docker build -t tplink-deco-exporter:dev .
 
 GitHub Actions publishes `linux/amd64` images to GitHub Container Registry. Every push to `main` updates the `latest`, `main`, and commit-SHA tags. A tag such as `v1.2.3` also publishes `v1.2.3`, `1.2.3`, and `1.2`. The workflow runs the tests before publishing and includes OCI provenance and SBOM attestations.
 
-No registry password is stored in the repository. The workflow uses GitHub's short-lived `GITHUB_TOKEN` with `packages: write`. The package is linked to this repository through its OCI source label and initially inherits the private repository's access. To allow anonymous pulls, change the package visibility to public in the package settings on GitHub.
+No registry password is stored in the repository. The workflow uses GitHub's short-lived `GITHUB_TOKEN` with `packages: write`. The public package is linked to this repository through its OCI source label and supports anonymous pulls.
 
 The exporter only calls read operations plus the temporary `feedback_log` `build` operation. It contains no router control or persistent configuration calls.
