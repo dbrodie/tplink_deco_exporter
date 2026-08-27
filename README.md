@@ -71,7 +71,7 @@ docker build -t tplink-deco-exporter:dev .
 
 ## Publishing images
 
-GitHub Actions publishes multi-architecture `linux/amd64` and `linux/arm64` images to GitHub Container Registry. Every push to `main` updates the `latest`, `main`, and commit-SHA tags. A tag such as `v1.2.3` also publishes `v1.2.3`, `1.2.3`, and `1.2`. The workflow runs the tests before publishing and includes OCI provenance and SBOM attestations.
+GitHub Actions publishes `linux/amd64` images to GitHub Container Registry. Every push to `main` updates the `latest`, `main`, and commit-SHA tags. A tag such as `v1.2.3` also publishes `v1.2.3`, `1.2.3`, and `1.2`. The workflow runs the tests before publishing and includes OCI provenance and SBOM attestations.
 
 No registry password is stored in the repository. The workflow uses GitHub's short-lived `GITHUB_TOKEN` with `packages: write`. The package is linked to this repository through its OCI source label and initially inherits the private repository's access. To allow anonymous pulls, change the package visibility to public in the package settings on GitHub.
 
