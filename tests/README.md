@@ -21,7 +21,7 @@ Docker deployment is checked separately:
 
 ```shell
 docker compose config
-docker compose build
+docker build -t tplink-deco-exporter:test .
 ```
 
 Tests must not contact or mutate a real router. API fixtures may use `read` and the temporary log-snapshot `build` operation only.

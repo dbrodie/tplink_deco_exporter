@@ -1,6 +1,6 @@
 services:
   tplink-deco-exporter:
-    build: .
+    image: ghcr.io/dbrodie/tplink_deco_exporter:latest
     ports:
       - "9100:9100"
     volumes:

@@ -4,13 +4,20 @@ A read-only Prometheus exporter and Loki forwarder for TP-Link Deco firmware. It
 
 ## Docker Compose
 
-Create the Docker secret and start the one-service stack:
+The published image is `ghcr.io/dbrodie/tplink_deco_exporter`. Because the GitHub repository is private, authenticate Docker with a classic personal access token containing `read:packages` before the first pull:
+
+```shell
+export CR_PAT="your-github-token"
+printf '%s' "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+Then create the Docker secret and start the one-service stack:
 
 ```shell
 mkdir -p .secrets
 printf '%s' 'your-deco-password' > .secrets/deco_password
 chmod 600 .secrets/deco_password
-docker compose up -d --build
+docker compose up -d
 ```
 
 Edit `config.yml` for the Deco host, instance name, and Loki URL. Set `logs.enabled: true` when Loki is available. Metrics are served at `http://localhost:9100/metrics`; liveness and readiness are `/healthz` and `/readyz`.
@@ -59,6 +66,13 @@ Only the leading router timestamp is parsed for Loki ordering. State is atomical
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/pytest
+docker build -t tplink-deco-exporter:dev .
 ```
+
+## Publishing images
+
+GitHub Actions publishes multi-architecture `linux/amd64` and `linux/arm64` images to GitHub Container Registry. Every push to `main` updates the `latest`, `main`, and commit-SHA tags. A tag such as `v1.2.3` also publishes `v1.2.3`, `1.2.3`, and `1.2`. The workflow runs the tests before publishing and includes OCI provenance and SBOM attestations.
+
+No registry password is stored in the repository. The workflow uses GitHub's short-lived `GITHUB_TOKEN` with `packages: write`. The package is linked to this repository through its OCI source label and initially inherits the private repository's access. To allow anonymous pulls, change the package visibility to public in the package settings on GitHub.
 
 The exporter only calls read operations plus the temporary `feedback_log` `build` operation. It contains no router control or persistent configuration calls.
