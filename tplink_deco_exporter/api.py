@@ -171,12 +171,18 @@ class TplinkDecoApi:
         form: str,
         operation: str = "read",
         params: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        expected_result_type: type = dict,
+    ) -> dict[str, Any] | list[Any]:
         return await self._async_call_with_retry(
-            self._async_request, path, form, operation, params
+            self._async_request,
+            path,
+            form,
+            operation,
+            params,
+            expected_result_type,
         )
 
-    async def _async_request(self, path, form, operation, params):
+    async def _async_request(self, path, form, operation, params, expected_result_type):
         await self.async_login_if_needed()
         context = f"{path}/{form}:{operation}"
         payload: dict[str, Any] = {"operation": operation}
@@ -191,8 +197,11 @@ class TplinkDecoApi:
         data = self._decrypt_data(context, response_json["data"])
         check_data_error_code(context, data)
         result = data.get("result", {})
-        if not isinstance(result, dict):
-            raise UnexpectedApiException(f"{context} result is not an object")
+        if not isinstance(result, expected_result_type):
+            raise UnexpectedApiException(
+                f"{context} result type={type(result).__name__} "
+                f"expected={expected_result_type.__name__}"
+            )
         return result
 
     async def async_list_devices(self) -> list[dict[str, Any]]:
@@ -290,7 +299,9 @@ class TplinkDecoApi:
             # Await future to suppress future exception was never retrieved error
             try:
                 await self._login_future
-            except Exception:  # noqa: BLE001,S110 - future exception was already propagated
+            except (
+                Exception
+            ):  # noqa: BLE001,S110 - future exception was already propagated
                 pass
             self._login_future = None
 

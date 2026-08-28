@@ -60,6 +60,7 @@ CLIENT = {
 class FakeApi:
     def __init__(self):
         self.devices = [DEVICE]
+        self.requests = []
 
     async def async_list_devices(self):
         return [dict(x) for x in self.devices]
@@ -67,7 +68,8 @@ class FakeApi:
     async def async_list_clients(self, mac):
         return [dict(CLIENT)] if mac == "AA" else []
 
-    async def async_request(self, path, form, *args, **kwargs):
+    async def async_request(self, path, form, operation="read", *args, **kwargs):
+        self.requests.append((path, form, operation))
         return {
             "performance": {"cpu_usage": "0.25", "mem_usage": 0.5},
             "mode": {"sysmode": "AP", "workmode": "FAP"},
@@ -144,10 +146,12 @@ async def test_every_observed_inventory_group_is_exported_without_health_logic()
         "deco_lan_info",
         "deco_router_time_seconds",
         "deco_wireless_fast_roaming_enabled",
+        "deco_wireless_erp_supported",
     ):
         assert name in text
     assert 'band="5",device_mac="AA"} 2.0' in text
     assert 'client_mac="CC",device_mac="AA"} 12.5' in text
+    assert ("web", "extra_component_info", "get") in collector.api.requests
     assert "must-not-leak" not in text
     assert "health" not in text and "degraded" not in text
 

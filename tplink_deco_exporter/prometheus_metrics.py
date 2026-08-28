@@ -320,7 +320,9 @@ class DecoMetrics:
         self.beamforming = Gauge(
             "deco_wireless_beamforming_enabled", "Raw beamforming flag", **kw
         )
-        self.erp = Gauge("deco_wireless_erp_enabled", "Raw ERP flag", **kw)
+        self.erp_supported = Gauge(
+            "deco_wireless_erp_supported", "Raw ERP support flag", **kw
+        )
 
         self.endpoint_supported = Gauge(
             "deco_api_endpoint_supported",
@@ -626,7 +628,11 @@ class DecoMetricsCollector:
 
     async def _get(self, endpoint):
         path, form = REQUIRED_ENDPOINTS[endpoint]
-        return await self.request(endpoint, lambda: self.api.async_request(path, form))
+        operation = "get" if endpoint == "extra_component_info" else "read"
+        return await self.request(
+            endpoint,
+            lambda: self.api.async_request(path, form, operation=operation),
+        )
 
     async def _global(self):
         results = await asyncio.gather(
@@ -729,7 +735,7 @@ class DecoMetricsCollector:
         self.m.dfs.set(_b(power.get("support_dfs")))
         self.m.fast_roaming.set(_b(roaming.get("enable")))
         self.m.beamforming.set(_b(beam.get("enable")))
-        self.m.erp.set(_b(extra.get("enable_erp")))
+        self.m.erp_supported.set(_b(extra.get("enable_erp")))
 
     async def _capabilities(self):
         for endpoint in REQUIRED_ENDPOINTS:
