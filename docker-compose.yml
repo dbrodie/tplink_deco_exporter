@@ -8,8 +8,6 @@ services:
       - ./config.yml:/config/config.yml:ro
     secrets:
       - deco_password
-    cap_add:
-      - NET_RAW
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9100/healthz"]

@@ -13,6 +13,7 @@ coverage.xml
 .secrets/
 data/
 config_usage.yml
+config.local.yml
 
 # Home Assistant configuration
 config/*
