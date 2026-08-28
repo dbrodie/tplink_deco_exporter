@@ -7,7 +7,7 @@ The tests exercise the exporter without requiring a live Deco or Loki instance.
 - `test_api.py`: encryption helpers, name decoding, and the read-only public API surface.
 - `test_config.py`: YAML and environment configuration, secret files, validation, and redaction.
 - `test_metrics.py`: device, client, WAN/LAN, system, time, and wireless metric mappings plus stale-series removal.
-- `test_logs_and_probes.py`: raw log ordering, duplicate records, anchors, restart recovery, partial Loki delivery, watermark state, and ICMP observations.
+- `test_logs_and_probes.py`: raw log ordering, duplicate records, anchors, restart recovery, partial Loki delivery, watermark state, and web-port TCP observations.
 
 Run the suite with:
 

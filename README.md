@@ -1,6 +1,6 @@
 # TP-Link Deco metrics and raw log forwarder
 
-A read-only Prometheus exporter and Loki forwarder for TP-Link Deco firmware. It exports low-level API observations and forwards the router's `feedback_log` lines unchanged. It deliberately contains no health classification, alert rules, event categorization, or diagnosis.
+A read-only Prometheus exporter and Loki forwarder for TP-Link Deco firmware. It exports low-level API observations and forwards every mesh node's `feedback_log` lines unchanged. It deliberately contains no health classification, alert rules, event categorization, or diagnosis.
 
 ## Docker Compose
 
@@ -15,7 +15,7 @@ docker compose up -d
 
 Edit `config.yml` for the Deco host, instance name, and Loki URL. Set `logs.enabled: true` when Loki is available. Metrics are served at `http://localhost:9100/metrics`; liveness and readiness are `/healthz` and `/readyz`.
 
-The named `deco-state` volume persists `/data/log-watermark.json`. To use a host directory instead, replace `deco-state:/data` with `./data:/data`. `/data` is the only writable application directory. ICMP probing uses the container's `NET_RAW` capability and can be disabled.
+The named `deco-state` volume persists `/data/log-watermark.json`, including an independent replay anchor for each Deco MAC. To use a host directory instead, replace `deco-state:/data` with `./data:/data`. `/data` is the only writable application directory. Node reachability observations use ordinary TCP connections to the Deco web port, so the container needs no additional network capability.
 
 For Loki authentication, add a Compose secret and configure one of `loki.password_file` (with `loki.username`) or `loki.bearer_token_file`. `loki.tenant_id` supplies `X-Scope-OrgID`. Passwords and tokens may also be supplied through `DECO_*` variables, but secret files are preferred.
 
@@ -27,7 +27,7 @@ The supported sections and fields are:
 
 - `api`: `host`, `username`, `password`/`password_file`, `verify_ssl`, `timeout_seconds`, `timeout_retries`
 - `metrics`: `collection_interval`
-- `probes`: `enabled`, `interval`, `attempts`, `timeout`
+- `probes`: `enabled`, `interval`, `attempts`, `timeout` for TCP connections to each node's web port
 - `logs`: `enabled`, `poll_interval`, `level`, `timezone_fallback`, `page_size`, `state_path`
 - `loki`: `url`, `tenant_id`, `username`, `password`/`password_file`, `bearer_token`/`bearer_token_file`, `verify_ssl`, `timeout_seconds`, `batch_size`, `retries`
 - `server`: `host`, `port`
@@ -37,21 +37,21 @@ Firmware log levels are `ALL`, `ALERT`, `CRITICAL`, `ERROR`, `WARNING`, `NOTICE`
 
 ## Exported data
 
-The exporter maps the tested device inventory, per-node client inventory and rates, gateway CPU/memory ratios, system mode, IPv4/IPv6 internet state, WAN/LAN addressing, router time settings, and wireless operation/DFS/802.11r/beamforming/ERP flags. Device signal levels and all status strings remain raw firmware values.
+The exporter maps the tested device inventory, per-node client inventory and rates, gateway CPU/memory ratios, system mode, IPv4/IPv6 internet state, WAN/LAN addressing, router time settings, and wireless operation/DFS/802.11r/beamforming flags plus ERP support. Device signal levels and all status strings remain raw firmware values.
 
-Collection mechanics are observable through `deco_api_*`, `deco_collection_*`, device/client counts, probe metrics, log snapshot/record metrics, Loki delivery counters, and watermark-reset counters. `deco_api_endpoint_supported{endpoint}` reports both supported and probed optional firmware forms; an unsupported optional form is not treated as mesh failure.
+Collection mechanics are observable through `deco_api_*`, `deco_collection_*`, device/client counts, `deco_device_web_port_probe_*` metrics, log snapshot/record metrics, Loki delivery counters, and watermark-reset counters. The web-port probe uses the port from `api.host`, defaulting to 80 for HTTP and 443 for HTTPS; it reports only whether a TCP connection was attempted and succeeded, plus elapsed time. `deco_api_endpoint_supported{endpoint}` reports both supported and probed optional firmware forms; an unsupported optional form is not treated as mesh failure.
 
 The WAN username returned inside `wan_ipv4` is neither mapped nor logged. Unknown response fields are kept only for the current poll, and debug diagnostics report field names/types rather than values.
 
 ## Raw log replay
 
-Each poll builds the firmware's temporary `feedback_log` snapshot, follows its page-count semantics, and searches backward for the saved eight-line SHA-256 anchor. New lines are reversed into chronological order and sent exactly as returned using only these Loki labels:
+Each poll discovers the current node IPs from `device_list`, then builds and reads each node's independent temporary `feedback_log` snapshot. It follows the firmware's page-count semantics and searches backward for that node's saved eight-line SHA-256 anchor. New lines are reversed into chronological order and sent exactly as returned using these Loki labels:
 
 ```text
-job="tplink_deco", instance="<configured>", source="deco_router"
+job="tplink_deco", instance="<configured>", source="deco_router", device_mac="<node MAC>"
 ```
 
-Only the leading router timestamp is parsed for Loki ordering. State is atomically replaced after every accepted Loki batch. If Loki is unavailable the prior watermark remains; there is intentionally no durable raw-log spool.
+Only the leading router timestamp is parsed for Loki ordering. The version-2 state document is atomically replaced after every accepted Loki batch and keeps separate state for every `device_mac`; an existing version-1 watermark is migrated to the configured master. A missing or failing node does not block the other nodes. If Loki is unavailable the prior watermark remains; there is intentionally no durable raw-log spool.
 
 ## Development
 
