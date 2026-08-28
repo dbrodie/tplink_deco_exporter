@@ -365,35 +365,65 @@ class DecoMetrics:
         )
         self.devices_returned = Gauge("deco_devices_returned", "Devices returned", **kw)
         self.clients_returned = Gauge("deco_clients_returned", "Clients returned", **kw)
-        self.probe_attempted = Gauge(
-            "deco_device_probe_attempted",
-            "Whether a node probe was attempted",
+        self.web_probe_attempted = Gauge(
+            "deco_device_web_port_probe_attempted",
+            "Whether a TCP connection to the node web port was attempted",
             ["device_mac"],
             **kw,
         )
-        self.probe_success = Gauge(
-            "deco_device_probe_success", "Raw node probe result", ["device_mac"], **kw
+        self.web_probe_success = Gauge(
+            "deco_device_web_port_probe_success",
+            "Whether a TCP connection to the node web port succeeded",
+            ["device_mac"],
+            **kw,
         )
-        self.probe_duration = Gauge(
-            "deco_device_probe_duration_seconds",
-            "Node probe duration",
+        self.web_probe_duration = Gauge(
+            "deco_device_web_port_probe_duration_seconds",
+            "TCP connection probe duration for the node web port",
             ["device_mac"],
             **kw,
         )
         self.log_pages = Gauge(
-            "deco_log_snapshot_pages", "Pages in latest log snapshot", **kw
+            "deco_log_snapshot_pages",
+            "Pages in latest log snapshot",
+            ["device_mac"],
+            **kw,
         )
         self.log_records = Counter(
-            "deco_log_records_read_total", "Log records read", **kw
+            "deco_log_records_read_total",
+            "Log records read",
+            ["device_mac"],
+            **kw,
         )
         self.loki_batches = Counter(
-            "deco_loki_batches_total", "Loki batches", ["result"], **kw
+            "deco_loki_batches_total",
+            "Loki batches",
+            ["device_mac", "result"],
+            **kw,
         )
         self.loki_records = Counter(
-            "deco_loki_records_total", "Loki records", ["result"], **kw
+            "deco_loki_records_total",
+            "Loki records",
+            ["device_mac", "result"],
+            **kw,
         )
         self.watermark_resets = Counter(
-            "deco_log_watermark_resets_total", "Watermark resets", ["reason"], **kw
+            "deco_log_watermark_resets_total",
+            "Watermark resets",
+            ["device_mac", "reason"],
+            **kw,
+        )
+        self.log_node_last_success = Gauge(
+            "deco_log_node_last_success_timestamp_seconds",
+            "Last successful log collection by Deco node",
+            ["device_mac"],
+            **kw,
+        )
+        self.log_node_errors = Counter(
+            "deco_log_node_errors_total",
+            "Log collection errors by Deco node",
+            ["device_mac", "error_type"],
+            **kw,
         )
 
         self.dynamic = [

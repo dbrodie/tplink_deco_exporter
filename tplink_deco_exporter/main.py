@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from urllib.parse import urlsplit
 
 import aiohttp
 from aiohttp import web
@@ -10,11 +11,38 @@ from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
 from .api import TplinkDecoApi
 from .config import load_config
-from .log_forwarder import LogForwarder, LokiClient
-from .probes import NodeProber
+from .exceptions import (
+    EmptyDataException,
+    ForbiddenException,
+    LoginForbiddenException,
+    LoginInvalidException,
+    TimeoutException,
+    UnexpectedApiException,
+)
+from .log_forwarder import LokiClient, MeshLogForwarder
+from .probes import WebPortProber, web_port_from_host
 from .prometheus_metrics import DecoMetrics, DecoMetricsCollector
 
 logger = logging.getLogger(__name__)
+
+_SAFE_DETAIL_EXCEPTIONS = (
+    EmptyDataException,
+    ForbiddenException,
+    LoginForbiddenException,
+    LoginInvalidException,
+    TimeoutException,
+    UnexpectedApiException,
+)
+
+
+def _exception_summary(exc: Exception) -> str:
+    """Include API context while avoiding arbitrary exception text with URLs/tokens."""
+    name = type(exc).__name__
+    if isinstance(exc, _SAFE_DETAIL_EXCEPTIONS):
+        detail = str(exc).strip()
+        if detail:
+            return f"{name}: {detail}"
+    return name
 
 
 async def main():
@@ -25,11 +53,12 @@ async def main():
     )
     state = {"started": time.time(), "metrics_success": False}
     async with aiohttp.ClientSession() as session:
+        api_password = config.api.resolved_password()
         api = TplinkDecoApi(
             session,
             config.api.host.rstrip("/"),
             config.api.username,
-            config.api.resolved_password(),
+            api_password,
             config.api.verify_ssl,
             timeout_error_retries=config.api.timeout_retries,
             timeout_seconds=config.api.timeout_seconds,
@@ -42,30 +71,58 @@ async def main():
                 try:
                     await collector.collect_metrics()
                     state["metrics_success"] = True
-                except Exception as exc:  # noqa: BLE001 - keep later polls and HTTP alive
-                    logger.error("Metrics collection failed: %s", type(exc).__name__)
+                except (
+                    Exception
+                ) as exc:  # noqa: BLE001 - keep later polls and HTTP alive
+                    logger.error(
+                        "Metrics collection failed: %s", _exception_summary(exc)
+                    )
                 await asyncio.sleep(config.metrics.collection_interval)
 
         async def probe_loop():
-            prober = NodeProber(config.probes, metrics)
+            prober = WebPortProber(
+                config.probes, metrics, web_port_from_host(config.api.host)
+            )
             while True:
                 started = time.monotonic()
                 try:
                     if collector.devices:
                         await prober.probe(collector.devices)
                 except Exception as exc:  # noqa: BLE001 - isolate probe cycles
-                    metrics.collection_errors.labels("probes", type(exc).__name__).inc()
+                    metrics.collection_errors.labels(
+                        "web_port_probes", type(exc).__name__
+                    ).inc()
                 else:
-                    metrics.collection_last_success.labels("probes").set(time.time())
+                    metrics.collection_last_success.labels("web_port_probes").set(
+                        time.time()
+                    )
                 finally:
-                    metrics.collection_duration.labels("probes").set(
+                    metrics.collection_duration.labels("web_port_probes").set(
                         time.monotonic() - started
                     )
                 await asyncio.sleep(config.probes.interval)
 
         async def logs_loop():
-            forwarder = LogForwarder(
+            root_url = urlsplit(config.api.host)
+            root_ip = root_url.hostname or config.api.host
+
+            def api_factory(device_ip: str) -> TplinkDecoApi:
+                port = f":{root_url.port}" if root_url.port is not None else ""
+                node_host = f"{root_url.scheme or 'http'}://{device_ip}{port}"
+                return TplinkDecoApi(
+                    session,
+                    node_host,
+                    config.api.username,
+                    api_password,
+                    config.api.verify_ssl,
+                    timeout_error_retries=config.api.timeout_retries,
+                    timeout_seconds=config.api.timeout_seconds,
+                )
+
+            forwarder = MeshLogForwarder(
                 api,
+                api_factory,
+                root_ip,
                 LokiClient(session, config.loki, config.instance, metrics),
                 config.logs,
                 config.instance,
@@ -78,12 +135,25 @@ async def main():
                         collector.time_settings.get("tz_region")
                         or config.logs.timezone_fallback
                     )
-                    await forwarder.poll(timezone_name)
-                except Exception as exc:  # noqa: BLE001 - preserve subsequent log polls
+                    attempted, errors = await forwarder.poll(
+                        collector.devices, timezone_name
+                    )
+                    for device_mac, exc in errors:
+                        metrics.collection_errors.labels(
+                            "logs", type(exc).__name__
+                        ).inc()
+                        logger.error(
+                            "Log forwarding failed device_mac=%s: %s",
+                            device_mac,
+                            _exception_summary(exc),
+                        )
+                    if attempted and not errors:
+                        metrics.collection_last_success.labels("logs").set(time.time())
+                except Exception as exc:  # noqa: BLE001 - preserve later log polls
                     metrics.collection_errors.labels("logs", type(exc).__name__).inc()
-                    logger.error("Log forwarding failed: %s", type(exc).__name__)
-                else:
-                    metrics.collection_last_success.labels("logs").set(time.time())
+                    logger.error(
+                        "Mesh log collection failed: %s", _exception_summary(exc)
+                    )
                 finally:
                     metrics.collection_duration.labels("logs").set(
                         time.monotonic() - started

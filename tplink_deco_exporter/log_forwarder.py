@@ -9,6 +9,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
@@ -33,14 +34,16 @@ _LEVELS = {
 }
 
 
+class LokiPushFailed(Exception):
+    """A Loki batch was not accepted after configured retries."""
+
+
 def line_hash(line: str) -> str:
     return hashlib.sha256(line.encode("utf-8")).hexdigest()
 
 
 @dataclass
 class Watermark:
-    version: int
-    identity: str
     final_router_timestamp: str | None
     anchor_hashes: list[str]
     last_loki_push_time: float | None
@@ -49,30 +52,74 @@ class Watermark:
 class StateStore:
     def __init__(self, path: Path, identity: str, metrics: DecoMetrics):
         self.path, self.identity, self.metrics = path, identity, metrics
+        self._nodes: dict[str, Watermark] | None = None
+        self._legacy: Watermark | None = None
 
     def empty(self) -> Watermark:
-        return Watermark(1, self.identity, None, [], None)
+        return Watermark(None, [], None)
 
-    def load(self) -> Watermark:
+    def _load_file(self, device_mac: str):
+        if self._nodes is not None:
+            return
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-            state = Watermark(**raw)
-            if state.version != 1 or state.identity != self.identity:
-                self.metrics.watermark_resets.labels("identity_or_version").inc()
-                return self.empty()
-            return state
+            if raw.get("identity") != self.identity:
+                raise ValueError("state identity mismatch")
+            if raw.get("version") == 2:
+                node_data = raw.get("nodes")
+                if not isinstance(node_data, dict):
+                    raise TypeError("state nodes is not an object")
+                self._nodes = {
+                    str(mac): Watermark(**value)
+                    for mac, value in node_data.items()
+                    if isinstance(value, dict)
+                }
+                return
+            if raw.get("version") == 1:
+                self._legacy = Watermark(
+                    raw.get("final_router_timestamp"),
+                    list(raw.get("anchor_hashes") or []),
+                    raw.get("last_loki_push_time"),
+                )
+                self._nodes = {}
+                return
+            raise ValueError("unsupported state version")
         except FileNotFoundError:
-            return self.empty()
+            self._nodes = {}
         except (OSError, ValueError, TypeError):
-            self.metrics.watermark_resets.labels("invalid_state").inc()
+            self.metrics.watermark_resets.labels(device_mac, "invalid_state").inc()
             _LOGGER.warning("Ignoring invalid log watermark at %s", self.path)
-            return self.empty()
+            self._nodes = {}
 
-    def save(self, state: Watermark):
+    def load(self, device_mac: str, migrate_legacy: bool = False) -> Watermark:
+        self._load_file(device_mac)
+        assert self._nodes is not None
+        if migrate_legacy and self._legacy is not None:
+            state = self._legacy
+            self._legacy = None
+            self.save(device_mac, state)
+            return state
+        return self._nodes.get(device_mac, self.empty())
+
+    def save(self, device_mac: str, state: Watermark):
+        self._load_file(device_mac)
+        assert self._nodes is not None
+        self._nodes[device_mac] = state
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(f".{self.path.name}.tmp-{os.getpid()}")
         temporary.write_text(
-            json.dumps(asdict(state), separators=(",", ":")), encoding="utf-8"
+            json.dumps(
+                {
+                    "version": 2,
+                    "identity": self.identity,
+                    "nodes": {
+                        mac: asdict(node_state)
+                        for mac, node_state in self._nodes.items()
+                    },
+                },
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
         )
         os.chmod(temporary, 0o600)
         os.replace(temporary, self.path)
@@ -93,7 +140,7 @@ class LokiClient:
             metrics,
         )
 
-    async def push(self, records: list[tuple[int, str]]) -> bool:
+    async def push(self, records: list[tuple[int, str]], device_mac: str) -> bool:
         headers = {"Content-Type": "application/json"}
         if self.config.tenant_id:
             headers["X-Scope-OrgID"] = self.config.tenant_id
@@ -111,6 +158,7 @@ class LokiClient:
                         "job": "tplink_deco",
                         "instance": self.instance,
                         "source": "deco_router",
+                        "device_mac": device_mac,
                     },
                     "values": [[str(ns), line] for ns, line in records],
                 }
@@ -128,8 +176,10 @@ class LokiClient:
                     timeout=timeout,
                 ) as response:
                     if 200 <= response.status < 300:
-                        self.metrics.loki_batches.labels("success").inc()
-                        self.metrics.loki_records.labels("success").inc(len(records))
+                        self.metrics.loki_batches.labels(device_mac, "success").inc()
+                        self.metrics.loki_records.labels(device_mac, "success").inc(
+                            len(records)
+                        )
                         return True
                     _LOGGER.warning(
                         "Loki rejected a batch with HTTP %s", response.status
@@ -142,8 +192,8 @@ class LokiClient:
                 import asyncio
 
                 await asyncio.sleep(min(2**attempt, 10))
-        self.metrics.loki_batches.labels("error").inc()
-        self.metrics.loki_records.labels("error").inc(len(records))
+        self.metrics.loki_batches.labels(device_mac, "error").inc()
+        self.metrics.loki_records.labels(device_mac, "error").inc(len(records))
         return False
 
 
@@ -155,9 +205,16 @@ class LogForwarder:
         config: LogsConfig,
         instance: str,
         metrics: DecoMetrics,
+        device_mac: str,
+        store: StateStore | None = None,
+        migrate_legacy: bool = False,
     ):
         self.api, self.loki, self.config, self.metrics = api, loki, config, metrics
-        self.store = StateStore(config.state_path, f"{instance}:deco_router", metrics)
+        self.device_mac = device_mac
+        self.store = store or StateStore(
+            config.state_path, f"{instance}:deco_router", metrics
+        )
+        self.migrate_legacy = migrate_legacy
 
     def _timestamp_ns(
         self, line: str, fallback_ns: int, timezone_name: str
@@ -210,15 +267,21 @@ class LogForwarder:
                 )
 
         types = await api_call(
-            "log_types", lambda: self.api.async_request("log_export", "types")
+            "log_types",
+            lambda: self.api.async_request(
+                "log_export", "types", expected_result_type=list
+            ),
         )
         advertised = {
             str(item.get("name", "")).upper()
-            for item in types.get("types", types.get("type_list", []))
+            for item in types
+            if isinstance(item, dict)
         }
         if advertised and self.config.level not in advertised:
             _LOGGER.warning(
-                "Configured firmware log level %s was not advertised", self.config.level
+                "Configured firmware log level %s was not advertised by device_mac=%s",
+                self.config.level,
+                self.device_mac,
             )
         await api_call(
             "feedback_log", lambda: self.api.async_build_log(_LEVELS[self.config.level])
@@ -227,13 +290,13 @@ class LogForwarder:
             "feedback_log", lambda: self.api.async_log_page(0, self.config.page_size)
         )
         page_count = int(newest.get("totalNum", 0))
-        self.metrics.log_pages.set(page_count)
+        self.metrics.log_pages.labels(self.device_mac).set(page_count)
         pages: dict[int, list[str]] = {
             int(newest.get("currentIndex", 0)): [
                 str(x.get("content", "")) for x in newest.get("logList", [])
             ]
         }
-        state = self.store.load()
+        state = self.store.load(self.device_mac, self.migrate_legacy)
         # Firmware page zero is newest. Fetch backward in time until the anchor can be found.
         for index in range(1, page_count):
             page = await api_call(
@@ -258,10 +321,12 @@ class LogForwarder:
             for page_index in sorted(pages, reverse=True)
             for line in pages[page_index]
         ]
-        self.metrics.log_records.inc(len(lines))
+        self.metrics.log_records.labels(self.device_mac).inc(len(lines))
         pending, found = self._after_anchor(lines, state.anchor_hashes)
         if state.anchor_hashes and not found:
-            self.metrics.watermark_resets.labels("anchor_missing").inc()
+            self.metrics.watermark_resets.labels(
+                self.device_mac, "anchor_missing"
+            ).inc()
         rolling = [line for line in lines if line.strip()][:0]
         if found:
             anchor_start = max(
@@ -287,15 +352,77 @@ class LogForwarder:
                 values.append((last_ns, line))
                 if router_timestamp:
                     last_router_timestamp = router_timestamp
-            if not await self.loki.push(values):
-                return
+            if not await self.loki.push(values, self.device_mac):
+                raise LokiPushFailed
             rolling.extend(line for line in batch if line.strip())
             rolling = rolling[-8:]
             state = Watermark(
-                1,
-                self.store.identity,
                 last_router_timestamp,
                 [line_hash(x) for x in rolling],
                 time.time(),
             )
-            self.store.save(state)
+            self.store.save(self.device_mac, state)
+
+
+class MeshLogForwarder:
+    def __init__(
+        self,
+        root_api: TplinkDecoApi,
+        api_factory: Callable[[str], TplinkDecoApi],
+        root_ip: str,
+        loki: LokiClient,
+        config: LogsConfig,
+        instance: str,
+        metrics: DecoMetrics,
+    ):
+        self.root_api = root_api
+        self.api_factory = api_factory
+        self.root_ip = root_ip
+        self.loki = loki
+        self.config = config
+        self.instance = instance
+        self.metrics = metrics
+        self.store = StateStore(config.state_path, f"{instance}:deco_router", metrics)
+        self.forwarders: dict[str, tuple[str, LogForwarder]] = {}
+
+    def _forwarder(self, device_mac: str, device_ip: str) -> LogForwarder:
+        current = self.forwarders.get(device_mac)
+        if current is not None and current[0] == device_ip:
+            return current[1]
+        api = (
+            self.root_api if device_ip == self.root_ip else self.api_factory(device_ip)
+        )
+        forwarder = LogForwarder(
+            api,
+            self.loki,
+            self.config,
+            self.instance,
+            self.metrics,
+            device_mac,
+            self.store,
+            migrate_legacy=device_ip == self.root_ip,
+        )
+        self.forwarders[device_mac] = (device_ip, forwarder)
+        return forwarder
+
+    async def poll(
+        self, devices: list[dict], timezone_name: str
+    ) -> tuple[int, list[tuple[str, Exception]]]:
+        candidates = [
+            (str(device.get("mac", "")), str(device.get("device_ip", "")))
+            for device in devices
+            if device.get("mac") and device.get("device_ip")
+        ]
+        candidates.sort(key=lambda item: item[1] != self.root_ip)
+        errors: list[tuple[str, Exception]] = []
+        for device_mac, device_ip in candidates:
+            try:
+                await self._forwarder(device_mac, device_ip).poll(timezone_name)
+            except Exception as exc:  # noqa: BLE001 - isolate each Deco log source
+                self.metrics.log_node_errors.labels(
+                    device_mac, type(exc).__name__
+                ).inc()
+                errors.append((device_mac, exc))
+            else:
+                self.metrics.log_node_last_success.labels(device_mac).set(time.time())
+        return len(candidates), errors
