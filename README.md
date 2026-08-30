@@ -15,7 +15,7 @@ docker compose up -d
 
 Edit `config.yml` for the Deco host, instance name, and Loki URL. Set `logs.enabled: true` when Loki is available. Metrics are served at `http://localhost:9100/metrics`; liveness and readiness are `/healthz` and `/readyz`.
 
-The named `deco-state` volume persists `/data/log-watermark.json`, including an independent replay anchor for each Deco MAC. To use a host directory instead, replace `deco-state:/data` with `./data:/data`. `/data` is the only writable application directory. Node reachability observations use ordinary TCP connections to the Deco web port, so the container needs no additional network capability.
+The named `deco-state` volume persists `/data/log-watermark.json`, including an independent replay anchor for each Deco MAC. To use a host directory instead, replace `deco-state:/data` with `./data:/data`. `/data` is the only writable application directory. Node reachability observations use ordinary TCP connections to the Deco web port, so the container needs no additional network capability. The exporter handles `SIGTERM` and `SIGINT`, cancels active polling, and closes its HTTP and API resources during Compose shutdown.
 
 For Loki authentication, add a Compose secret and configure one of `loki.password_file` (with `loki.username`) or `loki.bearer_token_file`. `loki.tenant_id` supplies `X-Scope-OrgID`. Passwords and tokens may also be supplied through `DECO_*` variables, but secret files are preferred.
 

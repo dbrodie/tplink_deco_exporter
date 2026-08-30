@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 import time
 from urllib.parse import urlsplit
 
@@ -43,6 +44,38 @@ def _exception_summary(exc: Exception) -> str:
         if detail:
             return f"{name}: {detail}"
     return name
+
+
+def _install_signal_handlers(
+    stop_event: asyncio.Event,
+) -> tuple[asyncio.AbstractEventLoop, list[signal.Signals]]:
+    loop = asyncio.get_running_loop()
+    installed = []
+    for shutdown_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(shutdown_signal, stop_event.set)
+        except NotImplementedError:
+            continue
+        installed.append(shutdown_signal)
+    return loop, installed
+
+
+async def _run_tasks_until_shutdown(
+    tasks: list[asyncio.Task], stop_event: asyncio.Event
+) -> None:
+    stop_task = asyncio.create_task(stop_event.wait())
+    try:
+        done, _pending = await asyncio.wait(
+            [stop_task, *tasks], return_when=asyncio.FIRST_COMPLETED
+        )
+        if stop_task not in done:
+            for task in done:
+                task.result()
+    finally:
+        stop_task.cancel()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(stop_task, *tasks, return_exceptions=True)
 
 
 async def main():
@@ -191,12 +224,17 @@ async def main():
             tasks.append(asyncio.create_task(probe_loop()))
         if config.logs.enabled:
             tasks.append(asyncio.create_task(logs_loop()))
+        stop_event = asyncio.Event()
+        loop, installed_signals = _install_signal_handlers(stop_event)
         try:
-            await asyncio.gather(*tasks)
+            await _run_tasks_until_shutdown(tasks, stop_event)
         finally:
-            for task in tasks:
-                task.cancel()
-            await runner.cleanup()
+            try:
+                await runner.cleanup()
+            finally:
+                for shutdown_signal in installed_signals:
+                    loop.remove_signal_handler(shutdown_signal)
+        logger.info("Exporter stopped cleanly")
 
 
 if __name__ == "__main__":
