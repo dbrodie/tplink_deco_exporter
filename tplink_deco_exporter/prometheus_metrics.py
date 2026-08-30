@@ -395,6 +395,18 @@ class DecoMetrics:
             ["device_mac"],
             **kw,
         )
+        self.log_blank_records = Counter(
+            "deco_log_blank_records_total",
+            "Blank firmware log records ignored",
+            ["device_mac"],
+            **kw,
+        )
+        self.log_timestamp_parse_errors = Counter(
+            "deco_log_timestamp_parse_errors_total",
+            "Nonblank log records dropped due to an unparseable timestamp",
+            ["device_mac", "reason"],
+            **kw,
+        )
         self.loki_batches = Counter(
             "deco_loki_batches_total",
             "Loki batches",

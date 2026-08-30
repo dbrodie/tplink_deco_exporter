@@ -3,7 +3,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prometheus_client import CollectorRegistry
+from prometheus_client import CollectorRegistry, generate_latest
 
 from tplink_deco_exporter.config import LogsConfig, LokiConfig, ProbesConfig
 from tplink_deco_exporter.log_forwarder import (
@@ -86,6 +86,40 @@ async def test_first_replay_anchor_restart_and_exact_raw_lines(tmp_path):
     loki.lines.clear()
     await forwarder.poll("Asia/Jerusalem")
     assert loki.lines == [newer]
+
+
+@pytest.mark.asyncio
+async def test_blank_and_unparseable_records_are_dropped_and_observable(
+    tmp_path, caplog
+):
+    valid = line(1, "valid")
+    without_timestamp = "nonblank firmware content without a timestamp"
+    invalid_timestamp = "2026-99-99 99:99:99 invalid firmware timestamp"
+    api = LogApi([["", valid, "   ", without_timestamp, invalid_timestamp]])
+    loki = Loki()
+    registry = CollectorRegistry()
+    metrics = DecoMetrics(registry)
+    config = LogsConfig(enabled=True, state_path=tmp_path / "watermark.json")
+
+    with caplog.at_level("ERROR", logger="tplink_deco_exporter.log_forwarder"):
+        await LogForwarder(api, loki, config, "mesh", metrics, "AA").poll("UTC")
+
+    assert loki.lines == [valid]
+    output = generate_latest(registry).decode()
+    assert 'deco_log_blank_records_total{device_mac="AA"} 2.0' in output
+    assert (
+        'deco_log_timestamp_parse_errors_total{device_mac="AA",'
+        'reason="missing_prefix"} 1.0'
+    ) in output
+    assert (
+        'deco_log_timestamp_parse_errors_total{device_mac="AA",'
+        'reason="invalid_timestamp"} 1.0'
+    ) in output
+    assert caplog.text.count("Dropping firmware log record") == 2
+    assert without_timestamp in caplog.text
+    assert invalid_timestamp in caplog.text
+    assert "leading timestamp did not match" in caplog.text
+    assert "does not match format" in caplog.text
 
 
 @pytest.mark.asyncio

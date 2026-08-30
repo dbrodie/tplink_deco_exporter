@@ -45,13 +45,13 @@ The WAN username returned inside `wan_ipv4` is neither mapped nor logged. Unknow
 
 ## Raw log replay
 
-Each poll discovers the current node IPs from `device_list`, then builds and reads each node's independent temporary `feedback_log` snapshot. It follows the firmware's page-count semantics and searches backward for that node's saved eight-line SHA-256 anchor. New lines are reversed into chronological order and sent exactly as returned using these Loki labels:
+Each poll discovers the current node IPs from `device_list`, then builds and reads each node's independent temporary `feedback_log` snapshot. It follows the firmware's page-count semantics and searches backward for that node's saved eight-line SHA-256 anchor. New nonblank lines are reversed into chronological order and sent exactly as returned using these Loki labels:
 
 ```text
 job="tplink_deco", instance="<configured>", source="deco_router", device_mac="<node MAC>"
 ```
 
-Only the leading router timestamp is parsed for Loki ordering. The version-2 state document is atomically replaced after every accepted Loki batch and keeps separate state for every `device_mac`; an existing version-1 watermark is migrated to the configured master. A missing or failing node does not block the other nodes. If Loki is unavailable the prior watermark remains; there is intentionally no durable raw-log spool.
+Only the leading router timestamp is parsed for Loki ordering. Empty or whitespace-only firmware records are ignored and counted by `deco_log_blank_records_total`. A nonblank record with an unrecognized or invalid timestamp is not forwarded: the exporter logs the rejected line and parser error at error level and increments `deco_log_timestamp_parse_errors_total{reason}`. The version-2 state document is atomically replaced after every accepted Loki batch and keeps separate state for every `device_mac`; an existing version-1 watermark is migrated to the configured master. A missing or failing node does not block the other nodes. If Loki is unavailable the prior watermark remains; there is intentionally no durable raw-log spool.
 
 ## Development
 

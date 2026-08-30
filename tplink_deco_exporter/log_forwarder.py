@@ -217,24 +217,29 @@ class LogForwarder:
         self.migrate_legacy = migrate_legacy
 
     def _timestamp_ns(
-        self, line: str, fallback_ns: int, timezone_name: str
-    ) -> tuple[int, str | None]:
+        self, line: str, timezone_name: str
+    ) -> tuple[int | None, str | None, str | None, str | None]:
         match = _TIMESTAMP.match(line)
         if not match:
-            return fallback_ns, None
+            return (
+                None,
+                None,
+                "missing_prefix",
+                "leading timestamp did not match a supported firmware format",
+            )
         try:
             zone = ZoneInfo(timezone_name)
         except ZoneInfoNotFoundError:
             zone = ZoneInfo(self.config.timezone_fallback)
         raw = match.group(1) or match.group(2)
         try:
-            pattern = "%Y-%m-%d %H:%M:%S" if match.group(1) else "%a %b %d %H:%M:%S %Y"
-            parsed = datetime.strptime(raw.replace("T", " "), pattern).replace(
-                tzinfo=zone
-            )
-            return int(parsed.timestamp() * 1_000_000_000), raw
-        except ValueError:
-            return fallback_ns, None
+            is_iso = match.group(1) is not None
+            pattern = "%Y-%m-%d %H:%M:%S" if is_iso else "%a %b %d %H:%M:%S %Y"
+            normalized = raw.replace("T", " ", 1) if is_iso else raw
+            parsed = datetime.strptime(normalized, pattern).replace(tzinfo=zone)
+            return int(parsed.timestamp() * 1_000_000_000), raw, None, None
+        except ValueError as exc:
+            return None, None, "invalid_timestamp", str(exc)
 
     @staticmethod
     def _after_anchor(lines: list[str], anchor: list[str]) -> tuple[list[str], bool]:
@@ -316,12 +321,21 @@ class LogForwarder:
                 and self._after_anchor(chronological, state.anchor_hashes)[1]
             ):
                 break
-        lines = [
+        raw_lines = [
             line
             for page_index in sorted(pages, reverse=True)
             for line in pages[page_index]
         ]
-        self.metrics.log_records.labels(self.device_mac).inc(len(lines))
+        self.metrics.log_records.labels(self.device_mac).inc(len(raw_lines))
+        lines = [line for line in raw_lines if line.strip()]
+        blank_records = len(raw_lines) - len(lines)
+        if blank_records:
+            self.metrics.log_blank_records.labels(self.device_mac).inc(blank_records)
+            _LOGGER.debug(
+                "Ignoring blank firmware log records device_mac=%s count=%s",
+                self.device_mac,
+                blank_records,
+            )
         pending, found = self._after_anchor(lines, state.anchor_hashes)
         if state.anchor_hashes and not found:
             self.metrics.watermark_resets.labels(
@@ -338,23 +352,40 @@ class LogForwarder:
             rolling = [x for x in lines if x.strip()][
                 anchor_start : anchor_start + len(state.anchor_hashes)
             ]
-        fallback = time.time_ns()
         last_ns = 0
         last_router_timestamp = state.final_router_timestamp
         for offset in range(0, len(pending), self.loki.config.batch_size):
             batch = pending[offset : offset + self.loki.config.batch_size]
             values = []
-            for sequence, line in enumerate(batch):
-                ns, router_timestamp = self._timestamp_ns(
-                    line, fallback + offset + sequence, timezone_name
+            delivered_lines = []
+            for line in batch:
+                ns, router_timestamp, parse_error, error_detail = self._timestamp_ns(
+                    line, timezone_name
                 )
+                if parse_error and error_detail:
+                    self.metrics.log_timestamp_parse_errors.labels(
+                        self.device_mac, parse_error
+                    ).inc()
+                    _LOGGER.error(
+                        "Dropping firmware log record with unparseable timestamp "
+                        "device_mac=%s reason=%s error=%s line=%r",
+                        self.device_mac,
+                        parse_error,
+                        error_detail,
+                        line,
+                    )
+                    continue
+                assert ns is not None
                 last_ns = max(ns, last_ns + 1)
                 values.append((last_ns, line))
+                delivered_lines.append(line)
                 if router_timestamp:
                     last_router_timestamp = router_timestamp
+            if not values:
+                continue
             if not await self.loki.push(values, self.device_mac):
                 raise LokiPushFailed
-            rolling.extend(line for line in batch if line.strip())
+            rolling.extend(delivered_lines)
             rolling = rolling[-8:]
             state = Watermark(
                 last_router_timestamp,
